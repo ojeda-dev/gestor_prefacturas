@@ -9,11 +9,24 @@ st.set_page_config(page_title="Ficha Cliente", layout="wide")
 auth.exigir_sesion()
 auth.mostrar_barra_usuario()
 
-nit = st.session_state.get("cliente_nit")
+clientes_df = db.obtener_todos_los_clientes()
+
+opciones = {
+    f"{row['razon_social']} ({row['nit']})": row['nit']
+    for _, row in clientes_df.iterrows()
+}
+
+opcion_seleccionada = st.selectbox(
+    "Busca un cliente",
+    options=[""] + list(opciones.keys()),
+    format_func=lambda x: x if x else "Selecciona un cliente...",
+    placeholder="Escribe nombre o NIT para buscar...",
+)
+
+nit = opciones.get(opcion_seleccionada)
 
 if not nit:
-    st.info("No hay ningún cliente seleccionado todavía.")
-    st.page_link("app.py", label="⬅️ Volver al listado", icon="⬅️")
+    st.info("Selecciona un cliente para ver su ficha.")
     st.stop()
 
 cliente = db.obtener_cliente(nit)
@@ -23,7 +36,6 @@ if cliente is None:
         "Este cliente todavía no está en el catálogo local. "
         "Sincroniza primero desde la vista principal."
     )
-    st.page_link("app.py", label="⬅️ Volver al listado", icon="⬅️")
     st.stop()
 
 col_volver, col_historial = st.columns([1, 1])
