@@ -94,6 +94,34 @@ if not clientes_df.empty:
     df = df.merge(columnas_cliente_extra, left_on='f200_nit', right_on='nit', how='left')
     df = df.drop(columns=['nit'])
 
+# Columna 'notificado': cantidad de correos enviados por prefactura
+conteo_envios = db.obtener_conteo_envios_por_prefactura()
+df['notificado'] = df['prefactura'].map(conteo_envios).fillna(0).astype(int)
+
+# Merge con datos de gestión (solo si hay registros)
+gestion_df = db.obtener_todas_las_gestiones()
+if not gestion_df.empty:
+    df = df.merge(
+        gestion_df[['prefactura', 'estado_gestion', 'fecha_primer_correo', 'dias_habiles_transcurridos']],
+        on='prefactura', how='left',
+    )
+
+# Aplicar defaults (funciona tanto si hubo merge como si no)
+if 'estado_gestion' in df.columns:
+    df['estado_gestion'] = df['estado_gestion'].fillna('Sin Gestión')
+else:
+    df['estado_gestion'] = 'Sin Gestión'
+
+if 'fecha_primer_correo' in df.columns:
+    df['fecha_primer_correo'] = pd.to_datetime(df['fecha_primer_correo'], errors='coerce')
+else:
+    df['fecha_primer_correo'] = pd.NaT
+
+if 'dias_habiles_transcurridos' in df.columns:
+    df['dias_habiles_transcurridos'] = df['dias_habiles_transcurridos'].fillna(0).astype(int)
+else:
+    df['dias_habiles_transcurridos'] = 0
+
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
@@ -116,6 +144,17 @@ with st.container(border=True):
     with col_kpi_usd:
         valor_usd = df_sin_facturar[df_sin_facturar['f310_id_moneda_docto'] == 'USD']['f310_vlr_neto'].sum()
         st.metric("Sin Facturar (USD)", f"${valor_usd:,.2f}")
+
+    col_kpi_pend, col_kpi_record, col_kpi_suspend = st.columns(3)
+    with col_kpi_pend:
+        pendientes = len(df[(df['estado'] == "Sin Facturar") & (df['estado_gestion'] == "Pendiente")])
+        st.metric("En gestión: Pendientes", pendientes)
+    with col_kpi_record:
+        recordatorios = len(df[(df['estado'] == "Sin Facturar") & (df['estado_gestion'] == "Recordatorio")])
+        st.metric("En gestión: Recordatorio", recordatorios)
+    with col_kpi_suspend:
+        suspendidos = len(df[(df['estado'] == "Sin Facturar") & (df['estado_gestion'] == "Suspender")])
+        st.metric("En gestión: Suspender", suspendidos)
 
     st.divider()
 
@@ -430,6 +469,25 @@ if st.session_state.get("fila_sel_prefactura"):
                             gmail_thread_id=resultado["gmail_thread_id"],
                             gmail_account_usado=resultado["cuenta_gmail"],
                         )
+                        # Registrar gestión: si es el primer correo, crear
+                        # el registro y calcular el estado actual.
+                        gestion = db.obtener_gestion_prefactura(prefactura_sel)
+                        if not gestion:
+                            from datetime import datetime as _dt
+                            db.registrar_primer_correo(prefactura_sel, _dt.now().isoformat())
+                        # Recalcular estado de gestión con la config actual
+                        from gestion import calcular_estado_gestion as _calc
+                        from dateutil import parser as _dtp
+                        _config = db.obtener_configuracion_gestion()
+                        _gestion = db.obtener_gestion_prefactura(prefactura_sel)
+                        if _gestion:
+                            _fecha_pc = _dtp.isoparse(_gestion['fecha_primer_correo']).date()
+                            from datetime import date as _date
+                            _estado, _dias = _calc(
+                                _fecha_pc, _date.today(),
+                                _config['dias_recordatorio'], _config['dias_suspender'],
+                            )
+                            db.actualizar_estado_gestion(prefactura_sel, _estado, _dias)
                         st.session_state["mostrar_form_correo"] = False
                         st.success(f"Correo enviado a {destinatario_to}.")
                         st.rerun()

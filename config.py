@@ -86,16 +86,20 @@ COLUMNAS_DISPONIBLES = {
     'tipo_oc':                  ('Tipo de OC', 'Datos Adicionales'),
     'observaciones':            ('Observaciones', 'Datos Adicionales'),
     'links':                    ('Links', 'Datos Adicionales'),
+    'notificado':               ('Notificado', 'Gestión'),
+    'estado_gestion':           ('Estado Gestión', 'Gestión'),
+    'fecha_primer_correo':      ('Fecha 1er Correo', 'Gestión'),
+    'dias_habiles_transcurridos': ('Días Hábiles', 'Gestión'),
 }
 
 # Columnas visibles por defecto la primera vez que se abre la app
 # (mismo set que ya se venía usando antes de que el listado fuera
 # personalizable).
-COLUMNAS_DEFAULT = ['f200_razon_social', 'prefactura', 'f310_vlr_neto', 'estado', 'fecha_facturacion', 'factura']
+COLUMNAS_DEFAULT = ['f200_razon_social', 'prefactura', 'f310_vlr_neto', 'estado', 'notificado', 'estado_gestion', 'fecha_facturacion', 'factura']
 
 # Reglas de formato para el listado dinámico
 COLUMNAS_MONEDA = ['f310_vlr_bruto', 'f310_vlr_dscto', 'f310_vlr_imp', 'f310_vlr_neto']
-COLUMNAS_FECHA = ['fecha_creacion', 'fecha_aprovacion', 'fecha_facturacion', 'fecha_anulado']
+COLUMNAS_FECHA = ['fecha_creacion', 'fecha_aprovacion', 'fecha_facturacion', 'fecha_anulado', 'fecha_primer_correo']
 
 
 def agrupar_columnas_por_categoria() -> dict:
