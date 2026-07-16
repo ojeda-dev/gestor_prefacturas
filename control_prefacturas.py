@@ -148,7 +148,7 @@ st.markdown("### Navegación de Registros")
 if metadata["total_registros"] is not None:
     st.caption(f"Total de registros en Siesa: {metadata['total_registros']:,}")
 
-col_pag, col_filtro, col_kpi_cant, col_kpi_val = st.columns([1, 1.5, 1, 1.5])
+col_pag, col_filtro, col_kpi_cant, col_kpi_cop, col_kpi_usd = st.columns([1, 1.5, 1, 1.2, 1.2])
 
 with col_pag:
     pagina_actual = st.selectbox(
@@ -177,15 +177,19 @@ if filtro_estado != "Todos":
     df_filtrado = df[df['Estado'] == mapa_filtro[filtro_estado]]
 
 df_sin_facturar = df[df['Estado'] == "Sin Facturar"]
-total_pendientes_cantidad = len(df_sin_facturar)
-total_pendientes_valor = df_sin_facturar['f310_vlr_neto'].sum()
 
 with col_kpi_cant:
-    st.metric(label="Cant. Sin Facturar", value=total_pendientes_cantidad)
+    st.metric(label="Cant. Sin Facturar", value=len(df_sin_facturar))
 
-with col_kpi_val:
-    valor_mostrado = 0 if pd.isna(total_pendientes_valor) else total_pendientes_valor
-    st.metric(label="Valor Total Sin Facturar", value=f"${valor_mostrado:,.2f} COP")
+with col_kpi_cop:
+    valor_cop = df_sin_facturar[df_sin_facturar['f310_id_moneda_docto'] == 'COP']['f310_vlr_neto'].sum()
+    valor_cop = 0 if pd.isna(valor_cop) else valor_cop
+    st.metric(label="Sin Facturar (COP)", value=f"${valor_cop:,.2f}")
+
+with col_kpi_usd:
+    valor_usd = df_sin_facturar[df_sin_facturar['f310_id_moneda_docto'] == 'USD']['f310_vlr_neto'].sum()
+    valor_usd = 0 if pd.isna(valor_usd) else valor_usd
+    st.metric(label="Sin Facturar (USD)", value=f"${valor_usd:,.2f}")
 
 st.markdown("---")
 

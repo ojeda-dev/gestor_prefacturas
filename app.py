@@ -104,15 +104,18 @@ st.markdown("---")
 # en vez de un panel de control enfocado en la tabla de abajo.
 # ---------------------------------------------------------------------------
 with st.container(border=True):
-    col_kpi_cant, col_kpi_val = st.columns(2)
+    col_kpi_cant, col_kpi_cop, col_kpi_usd = st.columns(3)
     # Los KPIs siempre reflejan el TOTAL real (los 1,200+ registros), sin
     # importar el filtro de la tabla ni las columnas elegidas.
     df_sin_facturar = df[df['estado'] == "Sin Facturar"]
     with col_kpi_cant:
         st.metric("Cant. Sin Facturar (total)", len(df_sin_facturar))
-    with col_kpi_val:
-        valor_total = df_sin_facturar['f310_vlr_neto'].sum()
-        st.metric("Valor Total Sin Facturar", f"${valor_total:,.2f} COP")
+    with col_kpi_cop:
+        valor_cop = df_sin_facturar[df_sin_facturar['f310_id_moneda_docto'] == 'COP']['f310_vlr_neto'].sum()
+        st.metric("Sin Facturar (COP)", f"${valor_cop:,.2f}")
+    with col_kpi_usd:
+        valor_usd = df_sin_facturar[df_sin_facturar['f310_id_moneda_docto'] == 'USD']['f310_vlr_neto'].sum()
+        st.metric("Sin Facturar (USD)", f"${valor_usd:,.2f}")
 
     st.divider()
 

@@ -14,14 +14,14 @@ def valor_facturado_por_mes(
     anios_seleccionados: list[int] | None = None,
     meses_seleccionados: list[int] | None = None,
 ) -> pd.DataFrame:
-    """Agrupa el valor neto facturado por año y mes, a partir de
+    """Agrupa el valor neto facturado por año, mes y moneda, a partir de
     'fecha_facturacion'. Solo considera prefacturas que ya tienen fecha
     de facturación (es decir, ignora las que están 'Sin Facturar').
 
     Devuelve un DataFrame pivotado: filas = mes (en orden Enero-Diciembre,
-    solo los meses presentes en la selección), columnas = año, valores =
-    suma de f310_vlr_neto. Los huecos se rellenan con 0 para que el
-    gráfico no tenga barras faltantes.
+    solo los meses presentes en la selección), columnas = "MONEDA-AÑO" (ej.
+    "COP-2025", "USD-2026"), valores = suma de f310_vlr_neto. Los huecos se
+    rellenan con 0 para que el gráfico no tenga barras faltantes.
     """
     facturadas = historial[historial['fecha_facturacion'].notna()].copy()
 
@@ -40,18 +40,16 @@ def valor_facturado_por_mes(
         return pd.DataFrame()
 
     agrupado = (
-        facturadas.groupby(['anio', 'mes_num'])['f310_vlr_neto']
+        facturadas.groupby(['anio', 'mes_num', 'f310_id_moneda_docto'])['f310_vlr_neto']
         .sum()
         .reset_index()
     )
+    agrupado['moneda_anio'] = agrupado['f310_id_moneda_docto'] + '-' + agrupado['anio'].astype(str)
 
-    tabla = agrupado.pivot(index='mes_num', columns='anio', values='f310_vlr_neto').fillna(0)
+    tabla = agrupado.pivot(index='mes_num', columns='moneda_anio', values='f310_vlr_neto').fillna(0)
 
-    # Reindexar solo con los meses que realmente aparecen en la selección
-    # (o los 12 si no se filtró), manteniendo el orden Enero -> Diciembre.
     meses_a_mostrar = sorted(meses_seleccionados) if meses_seleccionados else list(range(1, 13))
     tabla = tabla.reindex(meses_a_mostrar, fill_value=0)
     tabla.index = pd.Index([NUMERO_A_MES[m] for m in tabla.index], name='Mes')
-    tabla.columns = [str(c) for c in tabla.columns]  # años como texto, se ven mejor en la leyenda
 
     return tabla

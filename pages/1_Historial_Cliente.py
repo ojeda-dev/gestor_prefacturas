@@ -37,15 +37,18 @@ if historial.empty:
     st.warning("No se encontraron registros para este cliente.")
     st.stop()
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3_cop, col3_usd = st.columns(4)
 with col1:
     st.metric("Total prefacturas", len(historial))
 with col2:
     pendientes = historial[historial['estado'] == "Sin Facturar"]
     st.metric("Pendientes", len(pendientes))
-with col3:
-    valor_pendiente = pendientes['f310_vlr_neto'].sum()
-    st.metric("Valor pendiente", f"${valor_pendiente:,.2f} COP")
+with col3_cop:
+    valor_cop = pendientes[pendientes['f310_id_moneda_docto'] == 'COP']['f310_vlr_neto'].sum()
+    st.metric("Pendiente (COP)", f"${valor_cop:,.2f}")
+with col3_usd:
+    valor_usd = pendientes[pendientes['f310_id_moneda_docto'] == 'USD']['f310_vlr_neto'].sum()
+    st.metric("Pendiente (USD)", f"${valor_usd:,.2f}")
 
 st.markdown("---")
 
@@ -89,8 +92,10 @@ else:
         # bar_chart ordena el eje alfabéticamente (Abril, Agosto, Diciembre...),
         # así que usamos altair_chart directamente para forzar Enero -> Diciembre.
         datos_largo = tabla_grafico.reset_index().melt(
-            id_vars='Mes', var_name='Año', value_name='Valor'
+            id_vars='Mes', var_name='Moneda-Año', value_name='Valor'
         )
+        datos_largo[['Moneda', 'Año']] = datos_largo['Moneda-Año'].str.split('-', n=1, expand=True)
+        datos_largo = datos_largo.drop(columns=['Moneda-Año'])
 
         grafico = (
             alt.Chart(datos_largo)
@@ -99,9 +104,10 @@ else:
                 x=alt.X('Mes:N', sort=reportes.MESES, title=None),
                 xOffset=alt.XOffset('Año:N'),
                 y=alt.Y('Valor:Q', title='Valor Facturado'),
-                color=alt.Color('Año:N', title='Año'),
+                color=alt.Color('Moneda:N', title='Moneda'),
                 tooltip=[
                     alt.Tooltip('Mes:N'),
+                    alt.Tooltip('Moneda:N'),
                     alt.Tooltip('Año:N'),
                     alt.Tooltip('Valor:Q', format=',.2f', title='Valor'),
                 ],
