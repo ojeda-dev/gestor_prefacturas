@@ -1,7 +1,7 @@
 """Configuración y constantes compartidas por toda la app."""
 from pathlib import Path
 
-URL_API = "https://apiqa.siesacloud.com/connekta/siesa/dinamico/consulta/v3.0.1"
+URL_API = "https://api.siesacloud.com/connekta/siesa/dinamico/consulta/v3.0.1"
 ID_COMPANIA = "7661"
 DESCRIPCION_CONSULTA = "cloudfleet_Control_Prefacturas"
 TAMANO_PAGINA = 100
