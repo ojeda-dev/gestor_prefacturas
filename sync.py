@@ -26,6 +26,9 @@ def sincronizar() -> dict:
     db.reemplazar_datos(df)
     db.upsert_clientes(df)  # actualiza datos de Siesa sin tocar campos manuales
     backup.hacer_backup_diario()  # no-op si ya hay respaldo de hoy
+    # Inicializar gestiones retroactivas y recalcular todos los estados
+    db.inicializar_gestiones_retroactivas()
+    db.recalcular_todos_los_estados_gestion()
     return {"total_registros": len(df)}
 
 

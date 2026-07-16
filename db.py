@@ -9,7 +9,7 @@ Si el equipo crece a decenas de usuarios concurrentes o el volumen sube a
 cientos de miles de registros, ahí sí valdría migrar a Postgres.
 """
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date
 
 import pandas as pd
 
@@ -109,6 +109,22 @@ CREATE TABLE IF NOT EXISTS envios_correo (
     enviado_en           TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_envios_prefactura ON envios_correo(prefactura);
+
+CREATE TABLE IF NOT EXISTS configuracion_gestion (
+    id                      INTEGER PRIMARY KEY CHECK (id = 1),
+    plazo_dias_habiles      INTEGER DEFAULT 5,
+    dias_recordatorio       INTEGER DEFAULT 3,
+    dias_suspender          INTEGER DEFAULT 5,
+    actualizado_en          TEXT
+);
+
+CREATE TABLE IF NOT EXISTS gestion_prefacturas (
+    prefactura              TEXT PRIMARY KEY,
+    fecha_primer_correo     TEXT NOT NULL,
+    estado_gestion          TEXT NOT NULL DEFAULT 'Pendiente',
+    dias_habiles_transcurridos INTEGER DEFAULT 0,
+    actualizado_en          TEXT
+);
 """
 
 COLUMNAS_TABLA = [
@@ -493,3 +509,172 @@ def obtener_todos_los_envios() -> pd.DataFrame:
 
     df['enviado_en'] = pd.to_datetime(df['enviado_en'], errors='coerce')
     return df
+
+
+def obtener_conteo_envios_por_prefactura() -> dict[str, int]:
+    """Retorna {prefactura: cantidad_de_envios} para todas las prefacturas
+    que tienen al menos un correo registrado."""
+    init_db()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT prefactura, COUNT(*) as total FROM envios_correo GROUP BY prefactura"
+        )
+        return {row[0]: row[1] for row in cur.fetchall()}
+
+
+# ---------------------------------------------------------------------------
+# Configuración global de reglas de gestión (singleton: solo 1 fila).
+# ---------------------------------------------------------------------------
+
+def obtener_configuracion_gestion() -> dict:
+    init_db()
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT * FROM configuracion_gestion WHERE id = 1")
+        row = cur.fetchone()
+
+    if row is None:
+        return {
+            "plazo_dias_habiles": 5,
+            "dias_recordatorio": 3,
+            "dias_suspender": 5,
+        }
+    return dict(row)
+
+
+def guardar_configuracion_gestion(
+    plazo_dias_habiles: int, dias_recordatorio: int, dias_suspender: int,
+) -> None:
+    init_db()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO configuracion_gestion (id, plazo_dias_habiles, dias_recordatorio, dias_suspender, actualizado_en)
+            VALUES (1, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                plazo_dias_habiles = excluded.plazo_dias_habiles,
+                dias_recordatorio  = excluded.dias_recordatorio,
+                dias_suspender     = excluded.dias_suspender,
+                actualizado_en     = excluded.actualizado_en
+            """,
+            (plazo_dias_habiles, dias_recordatorio, dias_suspender, datetime.now().isoformat()),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Gestión por prefactura: registra el primer correo y rastrea el
+# estado de seguimiento (Pendiente / Recordatorio / Suspender).
+# ---------------------------------------------------------------------------
+
+def registrar_primer_correo(prefactura: str, fecha_primer_correo: str) -> None:
+    """Inserta un registro de gestión SOLO si no existía ya para esta
+    prefactura (no sobreescribe un registro existente)."""
+    init_db()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO gestion_prefacturas (prefactura, fecha_primer_correo, estado_gestion, dias_habiles_transcurridos, actualizado_en)
+            VALUES (?, ?, 'Pendiente', 0, ?)
+            """,
+            (prefactura, fecha_primer_correo, datetime.now().isoformat()),
+        )
+
+
+def actualizar_estado_gestion(prefactura: str, estado: str, dias_habiles: int) -> None:
+    init_db()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE gestion_prefacturas
+            SET estado_gestion = ?, dias_habiles_transcurridos = ?, actualizado_en = ?
+            WHERE prefactura = ?
+            """,
+            (estado, dias_habiles, datetime.now().isoformat(), prefactura),
+        )
+
+
+def obtener_gestion_prefactura(prefactura: str) -> dict | None:
+    init_db()
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            "SELECT * FROM gestion_prefacturas WHERE prefactura = ?", (prefactura,)
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def obtener_todas_las_gestiones() -> pd.DataFrame:
+    init_db()
+    with get_connection() as conn:
+        return pd.read_sql("SELECT * FROM gestion_prefacturas", conn)
+
+
+def recalcular_todos_los_estados_gestion() -> None:
+    """Recalcula el estado de gestión de TODAS las prefacturas que tengan
+    registro en gestion_prefacturas, usando la configuración actual."""
+    from dateutil import parser as dtparser
+    from gestion import calcular_estado_gestion
+
+    config = obtener_configuracion_gestion()
+    gestiones = obtener_todas_las_gestiones()
+
+    if gestiones.empty:
+        return
+
+    hoy = date.today()
+    for _, row in gestiones.iterrows():
+        fecha_pc = dtparser.isoparse(row['fecha_primer_correo']).date()
+        estado, dias = calcular_estado_gestion(
+            fecha_pc, hoy,
+            config['dias_recordatorio'],
+            config['dias_suspender'],
+        )
+        actualizar_estado_gestion(row['prefactura'], estado, dias)
+
+
+def inicializar_gestiones_retroactivas() -> int:
+    """Para cada prefactura que tiene correos enviados pero NO tiene
+    registro en gestion_prefacturas, crea el registro usando la fecha
+    del primer correo. Retorna la cantidad de registros creados."""
+    from dateutil import parser as dtparser
+    from gestion import calcular_estado_gestion
+
+    init_db()
+    config = obtener_configuracion_gestion()
+    hoy = date.today()
+    creados = 0
+
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            SELECT prefactura, MIN(enviado_en) as primer_correo
+            FROM envios_correo
+            GROUP BY prefactura
+            """
+        )
+        envios_por_prefactura = cur.fetchall()
+
+    for prefactura, primer_correo_str in envios_por_prefactura:
+        existe = obtener_gestion_prefactura(prefactura)
+        if existe:
+            continue
+
+        fecha_pc = dtparser.isoparse(primer_correo_str).date()
+        estado, dias = calcular_estado_gestion(
+            fecha_pc, hoy,
+            config['dias_recordatorio'],
+            config['dias_suspender'],
+        )
+
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO gestion_prefacturas (prefactura, fecha_primer_correo, estado_gestion, dias_habiles_transcurridos, actualizado_en)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (prefactura, primer_correo_str, estado, dias, datetime.now().isoformat()),
+            )
+        creados += 1
+
+    return creados
